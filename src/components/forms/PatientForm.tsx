@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -55,26 +55,37 @@ const initialFormData: FormData = {
 const PatientForm = () => {
   const [currentStep, setCurrentStep] = useState(1);
   const [formData, setFormData] = useState<FormData>(initialFormData);
-  const totalSteps = 6; // added Target field as separate step
+  const [result, setResult] = useState<any>(null);
+  const [loading, setLoading] = useState(false);
+
+  // file upload states
+  const [fileResult, setFileResult] = useState<any>(null);
+  const [fileLoading, setFileLoading] = useState(false);
+
+  const FEATURE_LIST_PRETTY =
+    "age, sex, cp, trestbps, chol, fbs, restecg, thalach, exang, oldpeak, slope, ca, thal";
+
+  const totalSteps = 6;
   const progress = (currentStep / totalSteps) * 100;
 
+  const numericFields: (keyof FormData)[] = [
+    "age",
+    "sex",
+    "cp",
+    "trestbps",
+    "chol",
+    "fbs",
+    "restecg",
+    "thalach",
+    "exang",
+    "oldpeak",
+    "slope",
+    "ca",
+    "thal",
+    "target"
+  ];
+
   const handleInputChange = (field: keyof FormData, value: string) => {
-    const numericFields: (keyof FormData)[] = [
-      "age",
-      "sex",
-      "cp",
-      "trestbps",
-      "chol",
-      "fbs",
-      "restecg",
-      "thalach",
-      "exang",
-      "oldpeak",
-      "slope",
-      "ca",
-      "thal",
-      "target"
-    ];
     const newValue =
       numericFields.includes(field) && value !== "" ? Number(value) : value;
     setFormData((prev) => ({ ...prev, [field]: newValue }));
@@ -89,6 +100,102 @@ const PatientForm = () => {
   const prevStep = () => {
     if (currentStep > 1) {
       setCurrentStep((prev) => prev - 1);
+    }
+  };
+
+  // Simple validation: required fields for prediction
+  const requiredFields: (keyof FormData)[] = [
+    "age",
+    "sex",
+    "cp",
+    "trestbps",
+    "chol",
+    "fbs",
+    "restecg",
+    "thalach",
+    "exang",
+    "oldpeak",
+    "slope",
+    "ca",
+    "thal"
+  ];
+
+  const missingRequired = useMemo(() => {
+    return requiredFields.filter((f) => formData[f] === "" || formData[f] === null || formData[f] === undefined);
+  }, [formData]);
+
+  // Submit single-row prediction
+  const handleSubmit = async () => {
+    if (missingRequired.length > 0) {
+      alert(`Please fill required fields before submitting: ${missingRequired.join(", ")}`);
+      return;
+    }
+
+    setLoading(true);
+    setResult(null);
+
+    const payload: Record<string, number | null> = {};
+    requiredFields.forEach((f) => {
+      const val = formData[f];
+      payload[f] = val === "" || val === null || val === undefined ? null : Number(val);
+    });
+
+    try {
+      const res = await fetch("http://127.0.0.1:5001/predict", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+
+      const data = await res.json();
+      if (!res.ok) {
+        console.error("Server error:", data);
+        alert(data.error || "Server returned an error");
+        setLoading(false);
+        return;
+      }
+
+      // server returns prediction, probability, model, record_id
+      setResult(data);
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    } catch (err) {
+      console.error("Fetch error:", err);
+      alert("Failed to connect to server. Make sure the backend is running.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // file upload handler
+  const handleFileUpload = async (file: File) => {
+    setFileLoading(true);
+    setFileResult(null);
+
+    try {
+      const form = new FormData();
+      form.append("file", file);
+
+      const res = await fetch("http://127.0.0.1:5001/predict-file", {
+        method: "POST",
+        body: form
+      });
+
+      const data = await res.json();
+      if (!res.ok) {
+        console.error("Upload error:", data);
+        alert(data.error || "Upload failed");
+        setFileLoading(false);
+        return;
+      }
+
+      // server returns { results: [{row, prediction, probability, record_id}, ...], model, filename }
+      setFileResult(data);
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    } catch (err) {
+      console.error("Upload error", err);
+      alert("Unable to upload file. Check console.");
+    } finally {
+      setFileLoading(false);
     }
   };
 
@@ -398,7 +505,7 @@ const PatientForm = () => {
   };
 
   return (
-    <section  id="patient-form" className="py-20 bg-muted/30">
+    <section id="patient-form" className="py-20 bg-muted/30">
       <div className="container mx-auto px-4">
         <div className="max-w-4xl mx-auto">
           <div className="text-center mb-12">
@@ -442,9 +549,13 @@ const PatientForm = () => {
                 </Button>
 
                 {currentStep === totalSteps ? (
-                  <Button className="btn-primary flex items-center space-x-2">
+                  <Button
+                    className="btn-primary flex items-center space-x-2"
+                    onClick={handleSubmit}
+                    disabled={loading || missingRequired.length > 0}
+                  >
                     <CheckCircle className="h-4 w-4" />
-                    <span>Get Prediction</span>
+                    <span>{loading ? "Predicting..." : "Get Prediction"}</span>
                   </Button>
                 ) : (
                   <Button
@@ -456,6 +567,109 @@ const PatientForm = () => {
                   </Button>
                 )}
               </div>
+
+              {missingRequired.length > 0 && (
+                <p className="mt-3 text-sm text-yellow-600">
+                  Required fields missing: {missingRequired.join(", ")}
+                </p>
+              )}
+
+              {result && (
+                <div className="mt-10 p-6 border rounded-xl bg-white shadow animate-fade-in">
+                  <h3 className="text-2xl font-bold mb-4">Prediction Result</h3>
+
+                  <p className="text-lg">
+                    <strong>Disease:</strong>{" "}
+                    {result.prediction === 1 ? (
+                      <span className="text-red-600 font-semibold">
+                        Likely Heart Disease
+                      </span>
+                    ) : (
+                      <span className="text-green-600 font-semibold">
+                        Healthy
+                      </span>
+                    )}
+                  </p>
+
+                  <p className="text-lg mt-2">
+                    <strong>Probability:</strong>{" "}
+                    {typeof result.probability === "number"
+                      ? `${(result.probability * 100).toFixed(2)}%`
+                      : "N/A"}
+                  </p>
+
+                  <p className="text-md mt-1 text-muted-foreground">
+                    Model Used: {result.model}
+                  </p>
+
+                  {result.record_id && (
+                    <p className="text-sm mt-2 text-muted-foreground">
+                      Saved record id: <span className="font-mono">{result.record_id}</span>
+                    </p>
+                  )}
+                </div>
+              )}
+
+              {/* ====== FILE UPLOAD INPUT (minimal, keeps CSS same) ====== */}
+              <div className="mt-6">
+                <label className="block text-sm font-medium mb-2">Upload CSV File</label>
+                <input
+                  type="file"
+                  accept=".csv"
+                  onChange={(e) => {
+                    if (e.target.files && e.target.files[0]) {
+                      handleFileUpload(e.target.files[0]);
+                    }
+                  }}
+                  className="input-medical"
+                />
+                <p className="text-xs text-muted-foreground mt-1">
+                  CSV must contain columns: {FEATURE_LIST_PRETTY}
+                </p>
+              </div>
+
+              {/* ====== FILE RESULTS (renders after upload) ====== */}
+              {fileResult && fileResult.results && (
+                <div className="mt-8 p-6 border rounded-xl bg-white shadow animate-fade-in">
+                  <h3 className="text-2xl font-bold mb-4">File Predictions</h3>
+                  <p className="text-sm text-muted-foreground mb-3">Model: {fileResult.model}</p>
+                  <div className="overflow-auto">
+                    <table className="w-full text-sm">
+                      <thead>
+                        <tr className="text-left">
+                          <th className="pr-4">Row</th>
+                          <th className="pr-4">Prediction</th>
+                          <th className="pr-4">Probability</th>
+                          <th className="pr-4">Record ID</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {fileResult.results.map((r: any) => (
+                          <tr key={r.row}>
+                            <td className="pr-4">{r.row + 1}</td>
+                            <td className="pr-4">
+                              {r.prediction === 1 ? (
+                                <span className="text-red-600 font-semibold">Likely</span>
+                              ) : (
+                                <span className="text-green-600 font-semibold">Healthy</span>
+                              )}
+                            </td>
+                            <td className="pr-4">
+                              {typeof r.probability === "number"
+                                ? `${(r.probability * 100).toFixed(2)}%`
+                                : "N/A"}
+                            </td>
+                            <td className="pr-4">
+                              {r.record_id ? <span className="font-mono text-xs">{r.record_id}</span> : "—"}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+              {/* ======================================================== */}
             </CardContent>
           </Card>
         </div>

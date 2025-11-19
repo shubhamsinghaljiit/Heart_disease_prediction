@@ -104,20 +104,6 @@ const FeaturesSection = () => {
             </div>
           ))}
         </div>
-        
-        {/* CTA Section */}
-        {/* <div className="mt-20 text-center">
-          <div className="bg-gradient-medical rounded-3xl p-12 text-white">
-            <Stethoscope className="h-16 w-16 mx-auto mb-6 animate-float" />
-            <h3 className="text-3xl font-bold mb-4">Ready to Start?</h3>
-            <p className="text-xl text-white/90 mb-8 max-w-2xl mx-auto">
-              Take the first step towards better heart health with our comprehensive assessment.
-            </p>
-            <button className="btn-primary bg-white text-primary hover:bg-white/90">
-              Begin Health Assessment
-            </button>
-          </div>
-        </div> */}
       </div>
     </section>
   );

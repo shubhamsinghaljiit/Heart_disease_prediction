@@ -25,11 +25,6 @@ const HeroSection = () => {
         <div className="grid lg:grid-cols-2 gap-12 items-center">
           {/* Content */}
           <div className="text-center lg:text-left animate-fade-in">
-            {/* <div className="inline-flex items-center px-4 py-2 bg-white/20 backdrop-blur-sm rounded-full mb-6">
-              <Heart className="h-5 w-5 text-white mr-2 animate-heartbeat" />
-              <span className="text-white font-medium">AI-Powered Heart Health</span>
-            </div> */}
-            
             <h1 className="text-5xl lg:text-7xl font-bold text-white mb-6 text-shadow">
               Predict & Prevent
               <span className="block gradient-text bg-gradient-to-r from-white via-blue-200 to-green-200 bg-clip-text">
