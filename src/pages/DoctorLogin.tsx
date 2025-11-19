@@ -9,25 +9,24 @@ import {
   CardTitle,
   CardDescription
 } from "@/components/ui/card";
-import { Eye, EyeOff, User as UserIcon, Lock } from "lucide-react";
+import { Eye, EyeOff, User as UserIcon } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 
 /**
  * DoctorLogin.tsx
- * - POSTs { email, password } to backend /auth/login
- * - Expects { token, user } on success
- * - Stores token in localStorage (or sessionStorage if remember unchecked)
- * - Redirects to /doctor/dashboard
+ * - Posts { username/email, password } to backend /auth/login-file (dev file-based auth)
+ * - Handles 2 possible backend responses:
+ *    a) { token, user }  -> stores token and user
+ *    b) { ok: true, username, next } -> stores username and navigates
+ * - On success redirects to /doctor/dashboard
  *
- * SAMPLE CSV path points to the file you uploaded earlier:
- * local file path: /mnt/data/finaldata.csv
- * file URL used below: file:///mnt/data/finaldata.csv
+ * NOTE: SAMPLE_CSV_URL uses uploaded file path from session:
+ * file:///mnt/data/finaldata.csv
  */
-
-const SAMPLE_CSV_URL = "file:///mnt/data/finaldata.csv"; // <-- uploaded file path
+const SAMPLE_CSV_URL = "file:///mnt/data/finaldata.csv"; // uploaded file path in session
 
 const DoctorLogin: React.FC = () => {
-  const [email, setEmail] = useState("");
+  const [email, setEmail] = useState(""); // using "email" field but backend accepts username/email
   const [password, setPassword] = useState("");
   const [showPwd, setShowPwd] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -53,36 +52,52 @@ const DoctorLogin: React.FC = () => {
     }
 
     setLoading(true);
+
     try {
-      const res = await fetch("http://127.0.0.1:5001/auth/login", {
+      // Backend route in pipeline.py is /auth/login-file
+      const res = await fetch("http://127.0.0.1:5001/auth/login-file", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email: email.trim(), password })
+        // send as username and password (backend accepts username or email)
+        body: JSON.stringify({ username: email.trim(), password })
       });
 
       const data = await res.json().catch(() => ({}));
+
       if (!res.ok) {
-        setError(data.message || data.error || "Login failed. Check credentials.");
+        // backend may return helpful error fields
+        const msg = data.error || data.message || "Login failed. Check credentials.";
+        setError(msg);
         setLoading(false);
         return;
       }
 
-      if (!data.token) {
-        setError("Login succeeded but token missing. Check backend.");
-        setLoading(false);
+      // If backend returned a token (future or alternate backend), store it
+      if (data.token) {
+        if (remember) localStorage.setItem("authToken", data.token);
+        else sessionStorage.setItem("authToken", data.token);
+        if (data.user) localStorage.setItem("authUser", JSON.stringify(data.user));
+        // navigate to doctor dashboard
+        navigate("/doctor/dashboard");
         return;
       }
 
-      // Store token
-      if (remember) {
-        localStorage.setItem("authToken", data.token);
-      } else {
-        sessionStorage.setItem("authToken", data.token);
-      }
-      localStorage.setItem("authUser", JSON.stringify(data.user || {}));
+      // If backend returned { ok: true, username, next } (your pipeline currently returns this)
+      if (data.ok || data.username) {
+        // store minimal info
+        localStorage.setItem("authUser", JSON.stringify({ username: data.username || email.trim() }));
+        // optionally store a flag
+        if (remember) localStorage.setItem("authRemember", "1");
+        else sessionStorage.setItem("authRemember", "1");
 
-      // Redirect to doctor dashboard
-      navigate("/doctor/dashboard");
+        // navigate to next (if provided) or default dashboard
+        const next = data.next || "/doctor/dashboard";
+        navigate(next);
+        return;
+      }
+
+      // Fallback: success with unknown shape
+      setError("Login succeeded but response shape unexpected. Check backend.");
     } catch (err) {
       console.error("Login error:", err);
       setError("Network error while logging in. Is the backend running?");
@@ -92,8 +107,8 @@ const DoctorLogin: React.FC = () => {
   };
 
   const fillDemo = () => {
-    setEmail("dr_demo");
-    setPassword("demo1234");
+    setEmail("dr_raj");
+    setPassword("mySecretPass123");
     setError(null);
   };
 
@@ -122,7 +137,7 @@ const DoctorLogin: React.FC = () => {
                     type="text"
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
-                    placeholder="doctor@example.com"
+                    placeholder="doctor@example.com or dr_raj"
                     className="input-medical"
                     autoComplete="username"
                   />

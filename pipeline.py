@@ -4,18 +4,20 @@ Minimal Flask server for heart-disease pipeline.
 
 - POST /predict         -> JSON single-row predict & save to MongoDB
 - POST /predict-file    -> multipart file upload (CSV/XLSX), predict each row & save to MongoDB
+- POST /auth/login-file -> authenticate doctor via local CSV/txt file (dev only)
+- POST /records/<id>/notes -> append note to a saved record
 - GET  /records         -> list recent records (for quick verification)
 
 Requirements:
-  pip install flask pandas pymongo python-dotenv
+  pip install flask pandas pymongo python-dotenv flask-cors
 Make sure pipeline.pkl and pipeline_metadata.pkl are in same folder.
 Start MongoDB (or provide MONGO_URI env var) before running this script so records are saved.
 """
 
 import os
 import uuid
-import json
 from datetime import datetime
+from pathlib import Path
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 from werkzeug.utils import secure_filename
@@ -44,6 +46,20 @@ ALLOWED_EXT = {".csv", ".xls", ".xlsx"}
 
 MONGO_URI = os.getenv("MONGO_URI", "mongodb://localhost:27017")
 MONGO_DBNAME = os.getenv("MONGO_DBNAME", "heart_app")
+
+# -------------------------
+# Credentials file (DEV)
+# - tries (in order):
+#   1) env var CREDENTIALS_FILE
+#   2) project doctors.txt (recommended)
+#   3) fallback to uploaded path used earlier (/mnt/data/finaldata.csv)
+# -------------------------
+DEFAULT_PROJECT_CRED = os.path.join(ROOT, "doctors.txt")
+FALLBACK_UPLOADED = "/mnt/data/finaldata.csv"  # uploaded in session (may or may not exist on user's machine)
+CREDENTIALS_FILE = os.getenv(
+    "CREDENTIALS_FILE",
+    DEFAULT_PROJECT_CRED if Path(DEFAULT_PROJECT_CRED).exists() else FALLBACK_UPLOADED
+)
 
 # -------------------------
 # Logging
@@ -75,9 +91,9 @@ log.info("Loaded metadata. Model: %s, Features: %s", BEST_MODEL, FEATURE_ORDER)
 # -------------------------
 try:
     from pymongo import MongoClient
-    from bson.objectid import ObjectId
+    from bson import ObjectId
 except Exception as e:
-    raise ImportError("pymongo not installed. Run: pip install pymongo") from e
+    raise ImportError("pymongo / bson not installed. Run: pip install pymongo") from e
 
 client = MongoClient(MONGO_URI, serverSelectionTimeoutMS=3000)
 # test connection (will raise if cannot connect)
@@ -94,7 +110,15 @@ log.info("Connected to MongoDB at %s, DB: %s", MONGO_URI, MONGO_DBNAME)
 # Flask app
 # -------------------------
 app = Flask("pipeline")
-CORS(app)
+
+# CORS: allow your frontend origin(s)
+CORS(app, origins=[
+    "http://localhost:3000",
+    "http://127.0.0.1:3000",
+    "http://localhost:8080",
+    "http://127.0.0.1:8080"
+])
+
 def allowed_ext(filename):
     return os.path.splitext(filename.lower())[1] in ALLOWED_EXT
 
@@ -108,6 +132,8 @@ def save_record_to_mongo(record: dict):
 # -------------------------
 def build_input_df_from_json(data: dict):
     """Return pandas DataFrame with columns in FEATURE_ORDER (single row)."""
+    if FEATURE_ORDER is None:
+        return None, {"error": "server_missing_feature_order"}
     missing = [c for c in FEATURE_ORDER if c not in data]
     if missing:
         return None, {"error": "missing_features", "missing": missing}
@@ -134,7 +160,69 @@ def read_uploaded_file(path):
         return pd.read_excel(path)
 
 # -------------------------
-# Routes
+# Simple file-based credentials (DEV) helpers & route
+# -------------------------
+def load_credentials_from_file(path=CREDENTIALS_FILE):
+    """
+    Read credential lines from file. Each line: username,password
+    Returns dict: { username: password, ... }
+    Ignores empty lines and lines starting with '#'.
+    """
+    creds = {}
+    p = Path(path)
+    if not p.exists():
+        log.warning("Credentials file not found at %s", path)
+        return creds
+    log.info("Loading credentials from %s", path)
+    with p.open("r", encoding="utf-8", errors="ignore") as f:
+        for raw in f:
+            line = raw.strip()
+            if not line or line.startswith("#"):
+                continue
+            parts = [x.strip() for x in line.split(",")]
+            if len(parts) >= 2:
+                username = parts[0]
+                password = ",".join(parts[1:])  # allow commas in password if needed
+                creds[username] = password
+    log.info("Loaded %d credential(s)", len(creds))
+    return creds
+
+@app.route("/auth/login-file", methods=["POST"])
+def auth_login_file():
+    """
+    Login endpoint that verifies username/password against a local file.
+    Expects JSON: { "username": "...", "password": "..." }
+    Returns 200 JSON on success, 401 on failure.
+    """
+    try:
+        data = request.get_json(force=True)
+    except Exception as e:
+        return jsonify({"error": "invalid_json", "details": str(e)}), 400
+
+    if not isinstance(data, dict):
+        return jsonify({"error": "json_must_be_object"}), 400
+
+    username = (data.get("username") or data.get("email") or "").strip()
+    password = data.get("password") or ""
+    if not username or not password:
+        return jsonify({"error": "missing_credentials"}), 400
+
+    creds = load_credentials_from_file()
+    if not creds:
+        return jsonify({"error": "no_credentials_file", "path": CREDENTIALS_FILE}), 500
+
+    expected = creds.get(username)
+    if expected is None:
+        return jsonify({"error": "invalid_credentials"}), 401
+
+    # Plaintext comparison (dev only). In production, use bcrypt/JWT and DB.
+    if password == expected:
+        return jsonify({"ok": True, "username": username, "next": "/doctor/dashboard"}), 200
+    else:
+        return jsonify({"error": "invalid_credentials"}), 401
+
+# -------------------------
+# Routes: prediction, file prediction, records
 # -------------------------
 @app.route("/predict", methods=["POST"])
 def predict():
@@ -289,8 +377,49 @@ def list_records():
     return jsonify({"count": len(out), "records": out}), 200
 
 # -------------------------
+# New: append note to a record
+# -------------------------
+@app.route("/records/<rec_id>/notes", methods=["POST"])
+def add_note_to_record(rec_id):
+    """
+    POST body: { doctor: "dr_raj", note: "text", suggested_by_ai: "..." }
+    Appends a note object to the record's 'notes' array and returns the updated record id.
+    """
+    try:
+        body = request.get_json(force=True)
+    except Exception as e:
+        return jsonify({"error": "invalid_json", "details": str(e)}), 400
+
+    doctor = body.get("doctor", "doctor")
+    note_text = body.get("note", "")
+    suggested_by_ai = body.get("suggested_by_ai")
+
+    if not note_text or len(note_text.strip()) < 3:
+        return jsonify({"error": "note_required", "message": "Note must be at least 3 characters."}), 400
+
+    note_obj = {
+        "doctor": doctor,
+        "note": note_text.strip(),
+        "suggested_by_ai": suggested_by_ai,
+        "timestamp": datetime.utcnow()
+    }
+
+    try:
+        res = records_coll.update_one(
+            {"_id": ObjectId(rec_id)},
+            {"$push": {"notes": note_obj}}
+        )
+        if res.matched_count == 0:
+            return jsonify({"error": "not_found", "message": "Record not found"}), 404
+    except Exception as e:
+        return jsonify({"error": "db_update_failed", "details": str(e)}), 500
+
+    return jsonify({"ok": True, "record_id": rec_id}), 200
+
+# -------------------------
 # Run
 # -------------------------
 if __name__ == "__main__":
     # run on 127.0.0.1:5001 to match your frontend
-    app.run(host="127.0.0.1", port=5001, debug=True) 
+    log.info("Using credentials file: %s", CREDENTIALS_FILE)
+    app.run(host="127.0.0.1", port=5001, debug=True)
