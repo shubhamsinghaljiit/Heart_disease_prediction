@@ -419,15 +419,16 @@ def add_note_to_record(rec_id):
 # -------------------------
 # Run
 # -------------------------
+import os
+
 if __name__ == "__main__":
     log.info("Using credentials file: %s", CREDENTIALS_FILE)
 
-    port = int(os.environ.get("PORT", 8080))
+    # Render provides PORT, locally we fallback to 5001
+    port = int(os.environ.get("PORT", 5001))
 
     app.run(
-        host="0.0.0.0",   # IMPORTANT
+        host="0.0.0.0",
         port=port,
-        debug=False       # IMPORTANT
+        debug=False
     )
-
-   
