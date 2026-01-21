@@ -1,4 +1,5 @@
 // DoctorDashboard.tsx
+const API_BASE = import.meta.env.VITE_API_URL;
 import React, { useEffect, useState, useMemo } from "react";
 import { Button } from "@/components/ui/button";
 import {
@@ -39,7 +40,7 @@ const DoctorDashboard: React.FC = () => {
   const fetchRecords = async () => {
     setLoading(true);
     try {
-      const res = await fetch("http://127.0.0.1:5001/records");
+      const res = await fetch(`${API_BASE}/records`);
       const data = await res.json();
       if (res.ok) setRecords(data.records || []);
     } catch (err) {
@@ -87,7 +88,7 @@ const DoctorDashboard: React.FC = () => {
 
     setSaving(true);
     try {
-      const res = await fetch(`http://127.0.0.1:5001/records/${selectedId}/notes`, {
+      const res = await fetch(`${API_BASE}/records/${selectedId}/notes`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({

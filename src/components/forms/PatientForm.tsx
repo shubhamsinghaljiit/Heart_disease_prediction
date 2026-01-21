@@ -1,3 +1,4 @@
+const API_BASE = import.meta.env.VITE_API_URL;
 import { useState, useMemo } from "react";
 import { Button } from "@/components/ui/button";
 import {
@@ -141,7 +142,7 @@ const PatientForm = () => {
     });
 
     try {
-      const res = await fetch("http://127.0.0.1:5001/predict", {
+      const res = await fetch(`${API_BASE}/predict`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
@@ -175,7 +176,7 @@ const PatientForm = () => {
       const form = new FormData();
       form.append("file", file);
 
-      const res = await fetch("http://127.0.0.1:5001/predict-file", {
+      const res = await fetch(`${API_BASE}/predict-file`, {
         method: "POST",
         body: form
       });

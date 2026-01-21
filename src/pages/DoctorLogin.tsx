@@ -1,4 +1,5 @@
 // DoctorLogin.tsx
+const API_BASE = import.meta.env.VITE_API_URL;
 import React, { useState } from "react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -55,7 +56,7 @@ const DoctorLogin: React.FC = () => {
 
     try {
       // Backend route in pipeline.py is /auth/login-file
-      const res = await fetch("http://127.0.0.1:5001/auth/login-file", {
+      const res = await fetch(`${API_BASE}/auth/login-file`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         // send as username and password (backend accepts username or email)
