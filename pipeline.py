@@ -112,7 +112,13 @@ log.info("Connected to MongoDB at %s, DB: %s", MONGO_URI, MONGO_DBNAME)
 app = Flask("pipeline")
 
 # CORS: allow your frontend origin(s)
-CORS(app)
+CORS(
+    app,
+    resources={r"/*": {"origins": "*"}},
+    supports_credentials=True,
+    allow_headers=["Content-Type", "Authorization"],
+    methods=["GET", "POST", "OPTIONS"]
+)
 def allowed_ext(filename):
     return os.path.splitext(filename.lower())[1] in ALLOWED_EXT
 
