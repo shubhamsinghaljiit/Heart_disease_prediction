@@ -10,7 +10,7 @@ An end-to-end AI-powered Heart Disease Prediction Web Application that allows us
 🚀 Live Demo
 
 🔗 Frontend (User Interface):
-👉 https://heart-disease-frontend-kappa.vercel.app/
+👉 https://heart-disease-prediction-6cs5.vercel.app/
 
 🔗 Backend API (Flask):
 👉 https://heart-disease-backend-tulv.onrender.com/
