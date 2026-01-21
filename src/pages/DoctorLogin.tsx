@@ -1,5 +1,5 @@
 // DoctorLogin.tsx
-const API_BASE = import.meta.env.VITE_API_URL;
+const API_BASE = "https://heart-disease-backend-tulv.onrender.com";
 import React, { useState } from "react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
